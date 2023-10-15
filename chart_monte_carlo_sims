@@ -1,0 +1,161 @@
+### The following code runs and plots Monte Carlo simulations of the change in stock price for two companies, here labelled MN and ME. 
+
+# Reset environment -----------------------------------------------------
+
+rm(list=ls()) 
+
+header <- new.env() 
+source("~/programs/header.R", local = header) 
+
+library(crplotr)
+
+# Code ------------------------------------------------------------------
+
+mn_df <- read_rds(header$datasets(""))
+me_df <- read_rds(header$datasets(""))
+
+model_sector_mn <- mn ~ nyseew + earnings + firm_events + sector
+model_mn <- lm(formula = model_sector_mn, data = mn_df)
+
+model_sector_me <- me ~ nyseew + earnings + firm_events + sector
+model_me <- lm(formula = model_sector_me, data = me_df)
+
+rmse_mn <- sqrt(c(crossprod(model_mn$residuals))/length(model_mn$residuals))
+rmse_me <- sqrt(c(crossprod(model_me$residuals))/length(model_me$residuals))
+
+num_runs = 20
+
+mn_int <- data.frame(matrix(ncol = num_runs, nrow = nrow(mn_df)))
+me_int <- data.frame(matrix(ncol = num_runs, nrow = nrow(me_df)))
+
+for(i in 1:ncol(mn_int)){
+  set.seed(i)
+  
+  mn_run <- as.data.frame(rnorm(nrow(mn_df), 0, rmse_mn)) %>%
+    `colnames<-`(c("res")) %>%
+    mutate(cer = cumsum(res)) %>%
+    select(-res)
+  
+  mn_int[[i]] <- mn_run
+  
+  me_run <- as.data.frame(rnorm(nrow(msge_df), 0, rmse_me)) %>%
+    `colnames<-`(c("res")) %>%
+    mutate(cer = cumsum(res)) %>%
+    select(-res)
+  
+  me_int[[i]] <- me_run
+}
+
+# Figures 1 and 2 ---------------------------------------------------
+
+me_to_chart <- me_df %>%
+  select(date, cer) %>%
+  bind_cols(msge_int %>% 
+              pull(X13)) %>% 
+  rename(cer_me = "cer...2", sim_cer_msge = "cer...3")
+
+mn_to_chart <- mn_df %>% 
+  select(date, cer) %>%
+  bind_cols(mn_int %>% 
+              pull(X3)) %>% 
+  rename(cer_me = "cer...2", sim_cer_me = "cer...3")
+
+to_chart <- left_join(mn_to_chart, me_to_chart, by = "date")
+
+write_csv(to_chart, header$export("figure_1_2.csv"))
+
+# Appendix D -------------------------------------------------------
+
+chart1 <- c('X1', 'X2', 'X3', 'X4')
+chart2 <- c('X5', 'X6', 'X7', 'X8')
+chart3 <- c('X9', 'X10', 'X11', 'X12')
+chart4 <- c('X13', 'X14', 'X15', 'X16')
+chart5 <- c('X17', 'X18', 'X19', 'X20')
+levels <- c('Simulation 1', 'Simulation 2', 'Simulation 3', 'Simulation 4',
+            'Simulation 5', 'Simulation 6', 'Simulation 7', 'Simulation 8',
+            'Simulation 9', 'Simulation 10', 'Simulation 11', 'Simulation 12',
+            'Simulation 13', 'Simulation 14', 'Simulation 15', 'Simulation 16',
+            'Simulation 17', 'Simulation 18', 'Simulation 19', 'Simulation 20')
+
+mn_plot_data <- mn_int %>%
+  bind_cols(mn_df$date) %>%
+  rename("date" = "...21") %>%
+  relocate(date) %>%
+  pivot_longer(cols = -date) %>%
+  arrange(date, name) %>%
+  mutate(date = as.Date(date, origin = "1899-12-30"))
+
+mn_plot_data$name_label <- paste0('Simulation ', substr(mn_plot_data$name, 2, 3))
+mn_plot_data$name_label = factor(mn_plot_data$name_label,
+                                   levels = levels)
+
+me_plot_data <- me_int %>%
+  bind_cols(me_df$date) %>%
+  rename("date" = "...21") %>%
+  relocate(date) %>%
+  pivot_longer(cols = -date) %>%
+  arrange(date, name) %>%
+  mutate(date = as.Date(date, origin = "1899-12-30"))
+
+me_plot_data$name_label <- paste0('Simulation ', substr(me_plot_data$name, 2, 3))
+me_plot_data$name_label = factor(me_plot_data$name_label,
+                                   levels = levels)
+
+build_mn_chart <- function(simulation_list) {
+  ggplot(mn_plot_data %>% filter(name %in% simulation_list),
+  aes(x = date, y = value$cer, group = name_label)) +
+  geom_line() + 
+  facet_grid(name_label ~ .) +
+  scale_cr_x_date() +
+  scale_y_continuous(labels = scales::percent,
+                     limits = c(-1.1, 1.75),
+                     breaks = c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75)) +
+  geom_hline(yintercept = 0) +
+  theme_cr() +
+  theme(panel.spacing.y = unit(1, "lines")) +
+  labs_cr(
+      title = "MN",
+      subtitle = substitute(paste(bold("Simulation of CER Series as Random Walks"^"[1]"))),
+      note_txt = "[1] The residual on each trading day is simulated as one draw of a Monte Carlo simulation.  Each residual is drawn from a normal \ndistribution with mean zero and standard deviation equal to the root-mean-square error of Figure 5 regression."
+  )
+}
+
+build_me_chart <- function(simulation_list) {
+  ggplot(me_plot_data %>% filter(name %in% simulation_list),
+         aes(x = date, y = value$cer, group = name_label)) +
+    geom_line() + 
+    facet_grid(name_label ~ .) +
+    scale_cr_x_date() +
+    scale_y_continuous(labels = scales::percent,
+                       limits = c(-0.75, 0.8),
+                       breaks = c(-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75)) +
+    geom_hline(yintercept = 0) +
+    theme_cr() +
+    theme(panel.spacing.y = unit(1, "lines")) +
+    labs_cr(
+      title = "ME",
+      subtitle = substitute(paste(bold("Simulation of CER Series as Random Walks"^"[1]"))),
+      note_txt = "[1] The residual on each trading day is simulated as one draw of a Monte Carlo simulation.  Each residual is drawn from a normal \ndistribution with mean zero and standard deviation equal to the root-mean-square error of Figure 8 regression."
+    )
+}
+
+mn_chart1 <- build_mn_chart(chart1)
+mn_chart2 <- build_mn_chart(chart2)
+mn_chart3 <- build_mn_chart(chart3)
+mn_chart4 <- build_mn_chart(chart4)
+mn_chart5 <- build_mn_chart(chart5)
+mn_charts <- list(mn_chart1, mn_chart2, mn_chart3, mn_chart4, mn_chart5)
+
+me_chart1 <- build_me_chart(chart1)
+me_chart2 <- build_me_chart(chart2)
+me_chart3 <- build_me_chart(chart3)
+me_chart4 <- build_me_chart(chart4)
+me_chart5 <- build_me_chart(chart5)
+me_charts <- list(me_chart1, me_chart2, me_chart3, me_chart4, me_chart5)
+
+exports <- c(mn_charts, me_charts)
+
+ggsave_cr(exports, filename = header$export(""),
+          left_footer = " ",
+          middle_footer = " ",
+          portrait = TRUE)
