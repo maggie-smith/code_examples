@@ -1,0 +1,122 @@
+headr::reset_session()
+
+h <- headr::source_header()
+
+nk_data <- read_dta(h$export("04_entry_exit_events/02_regression_inputs/01a_regression_inputs_nk.dta"))
+
+nk_reg <- nk_data %>% 
+  filter(no_other_pre_entry == 1,
+         no_other_post_entry == 1,
+         no_other_pre_exit == 1,
+         no_other_post_exit == 1,
+         nk_nstp_entry == 1,
+         multiple_entry == 0,
+         year < 2020,
+         entry_market == 1) %>% 
+  mutate(yq_num = as.numeric(substr(yq, 1, 4))+ (as.numeric(substr(yq, 7, 7))-1)/4,
+         entry_yq_num = as.numeric(substr(entry_yq, 1, 4))+ (as.numeric(substr(entry_yq, 7, 7))-1)/4) %>% 
+  filter(entry_yq_num <= 2019,
+         yq_num < entry_yq_num & yq_num >= entry_yq_num-1) 
+
+reg_markets <- nk_reg %>% 
+  distinct(nd_name)
+
+check_nk_average <- nk_reg %>% 
+  filter(yq_num == entry_yq_num - 0.25) %>% 
+  distinct(nd_name)
+
+nk_average <- nk_reg %>% 
+  group_by(nd_name, yq) %>% 
+  summarise(passenger_year_sum = sum(passengers)) %>% 
+  ungroup() %>% 
+  summarise(avg_clean_entry_year_passengers = mean(passenger_year_sum))
+
+nk_average_passengers <- nk_average$avg_clean_entry_year_passengers
+
+entrants_list <- c("nk", "b6", "g4", "f9", "sy")
+cp_list <- c("b6", "nk", "b6", "b6", "b6")
+
+sensitivities <- c("incl_entrant", "excl_entrant")
+
+for(i in 1:length(entrants_list)){
+  
+    entrant <- entrants_list[i]
+    carrier_present <- cp_list[i]
+    entrant_data <- read_dta(h$export(paste("04_entry_exit_events/02_regression_inputs/0", i, "a_regression_inputs_", entrant, ".dta", sep = "")))
+    
+    if(entrant == "nk") {
+      entrant_data <- entrant_data %>% 
+        mutate(entry_yq_num = as.numeric(substr(entry_yq, 1, 4)) + (as.numeric(substr(entry_yq, 7, 7))-1)/4) %>% 
+        select(-entry_yq) %>% 
+        rename(entry_yq = entry_yq_num)
+    }
+    
+    if(entrant == "b6") {
+      entrant_data <- entrant_data %>% 
+        rename(lcc_count = wn_present)
+    } else {
+      entrant_data <- entrant_data %>% 
+        rename(lcc_count = b6_wn_count)
+    }
+    
+    for(s in sensitivities) {
+    
+      if(s == "excl_entrant") {
+        entrant_data <- entrant_data %>% 
+          filter(str_to_upper(carrier) != entrant)
+      }
+      
+      entrant_reg <- entrant_data %>% 
+        filter(no_other_pre_entry == 1,
+               no_other_post_entry == 1,
+               no_other_pre_exit == 1,
+               no_other_post_exit == 1,
+               multiple_entry == 0,
+               year < 2020,
+               entry_market == 1) %>% 
+        mutate(yq_num = as.numeric(substr(yq, 1, 4))+ (as.numeric(substr(yq, 7, 7))-1)/4) %>% 
+        filter(entry_yq <= 2019)
+      
+      entrant_markets <- entrant_reg %>% 
+        distinct(nd_name, .keep_all = T) %>% 
+        select(nd_name, entry_yq)
+      
+      check_missing_prior_data <- entrant_reg %>% 
+        filter(yq_num == entry_yq - 0.25) %>% 
+        distinct(nd_name, entry_yq)
+      
+      if(nrow(entrant_markets) != nrow(check_missing_prior_data)) {
+        fill_in <- entrant_markets %>% 
+          anti_join(check_missing_prior_data, by = c("nd_name", "entry_yq")) %>%
+          mutate(yq_num = entry_yq - 0.25,
+                 yq = paste(floor(yq_num), " Q", (yq_num - floor(yq_num))*4 + 1, sep = ""),
+                 passengers = 0)
+        
+        full_data <- entrant_reg %>% 
+          bind_rows(fill_in)
+      } else {
+        full_data <- entrant_reg
+      }
+      
+      avg_size_build <- full_data %>% 
+        filter(yq_num < entry_yq & yq_num >= entry_yq-1) %>% 
+        group_by(nd_name) %>% 
+        summarise(year_passengers = sum(passengers)) %>% 
+        ungroup() %>% 
+        mutate(quarter_norm_passengers = year_passengers/4 - nk_average_passengers,
+               log_quarter_norm_passengers = (log(year_passengers/4)+1) - log(nk_average_passengers+1)) %>% 
+        inner_join(entrant_reg, by = "nd_name")
+      
+      if(entrant == "b6") {
+        export_data <- avg_size_build %>% 
+          group_by(nd_name, yq, post_entry, nk_present, legacy_count, lcc_count, quarter_norm_passengers, log_quarter_norm_passengers) %>% 
+          summarise(passenger_sum = sum(passengers))
+      } else {
+        export_data <- avg_size_build %>% 
+          group_by(nd_name, yq, post_entry, b6_present, legacy_count, lcc_count, quarter_norm_passengers, log_quarter_norm_passengers) %>% 
+          summarise(passenger_sum = sum(passengers))
+      }
+      
+      write_dta(export_data, h$export(paste("04_entry_exit_events/07_entry_regressions/02_quantity_response_regressions/01_quantile_inputs/0", i, "a_mktsize_regression_inputs_", entrant, "_", s, ".dta", sep = "")))
+    }
+}
