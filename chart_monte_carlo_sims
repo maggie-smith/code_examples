@@ -38,7 +38,7 @@ for(i in 1:ncol(mn_int)){
   
   mn_int[[i]] <- mn_run
   
-  me_run <- as.data.frame(rnorm(nrow(msge_df), 0, rmse_me)) %>%
+  me_run <- as.data.frame(rnorm(nrow(me_df), 0, rmse_me)) %>%
     `colnames<-`(c("res")) %>%
     mutate(cer = cumsum(res)) %>%
     select(-res)
@@ -50,9 +50,9 @@ for(i in 1:ncol(mn_int)){
 
 me_to_chart <- me_df %>%
   select(date, cer) %>%
-  bind_cols(msge_int %>% 
+  bind_cols(me_int %>% 
               pull(X13)) %>% 
-  rename(cer_me = "cer...2", sim_cer_msge = "cer...3")
+  rename(cer_me = "cer...2", sim_cer_me = "cer...3")
 
 mn_to_chart <- mn_df %>% 
   select(date, cer) %>%
@@ -62,7 +62,7 @@ mn_to_chart <- mn_df %>%
 
 to_chart <- left_join(mn_to_chart, me_to_chart, by = "date")
 
-write_csv(to_chart, header$export("figure_1_2.csv"))
+write_csv(to_chart, header$export(""))
 
 # Appendix D -------------------------------------------------------
 
@@ -106,7 +106,7 @@ build_mn_chart <- function(simulation_list) {
   aes(x = date, y = value$cer, group = name_label)) +
   geom_line() + 
   facet_grid(name_label ~ .) +
-  scale_cr_x_date() +
+  scale_x_date() +
   scale_y_continuous(labels = scales::percent,
                      limits = c(-1.1, 1.75),
                      breaks = c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75)) +
